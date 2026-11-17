@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>APK Runner</title>
+<style>
+  :root { --bg:#0d130f; --panel:#141c16; --line:#26332a; --text:#e6efe8; --dim:#8ea195; --accent:#3ddc84; --bad:#ff6b6b; --warn:#f0b429; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.45 system-ui, -apple-system, Segoe UI, sans-serif; background:var(--bg); color:var(--text); }
+  header { display:flex; align-items:center; gap:12px; padding:14px 20px; border-bottom:1px solid var(--line); }
+  header h1 { font-size:18px; margin:0; }
+  header .tag { font-size:12px; color:var(--dim); }
+  main { display:grid; grid-template-columns:320px 1fr; gap:16px; padding:16px; height:calc(100vh - 56px); }
+  aside { display:flex; flex-direction:column; gap:14px; overflow:auto; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  .card h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--dim); margin:0 0 10px; }
+  #banner { display:none; border-color:var(--warn); }
+  #banner h2 { color:var(--warn); }
+  #banner p { margin:0 0 6px; }
+  .checks div { padding:2px 0; }
+  #drop { border:2px dashed var(--line); border-radius:8px; padding:22px 10px; text-align:center; color:var(--dim); cursor:pointer; transition:.15s; }
+  #drop.over { border-color:var(--accent); color:var(--text); }
+  #drop b { color:var(--text); }
+  progress { width:100%; height:6px; margin-top:8px; display:none; }
+  ul { list-style:none; margin:0; padding:0; }
+  li { display:flex; align-items:center; gap:6px; padding:7px 0; border-top:1px solid var(--line); }
+  li:first-child { border-top:0; }
+  li .n { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  li .n small { color:var(--dim); }
+  button { background:#1c2620; color:var(--text); border:1px solid var(--line); border-radius:6px; padding:5px 10px; cursor:pointer; font:inherit; }
+  button:hover { border-color:var(--accent); }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#06210f; font-weight:600; }
+  button.danger:hover { border-color:var(--bad); color:var(--bad); }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  pre { margin:0; max-height:180px; overflow:auto; font-size:11px; color:var(--dim); white-space:pre-wrap; }
+  .screen { display:flex; flex-direction:column; gap:8px; min-height:0; }
+  .bar { display:flex; gap:8px; align-items:center; color:var(--dim); flex-wrap:wrap; }
+  .bar .sp { flex:1; }
+  iframe { flex:1; width:100%; border:1px solid var(--line); border-radius:10px; background:#000; }
+  .msg { font-size:12px; margin-top:6px; min-height:1em; }
+  .msg.err { color:var(--bad); } .msg.ok { color:var(--accent); }
+  a { color:var(--accent); }
+  @media (max-width:800px){ main{ grid-template-columns:1fr; height:auto; } iframe{ height:70vh; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>🤖 APK Runner</h1>
+  <span class="tag">Android games on an emulator, streamed to your browser</span>
+</header>
+<main>
+  <aside>
+    <div class="card" id="banner">
+      <h2>⚠ Can't run Android here</h2>
+      <p id="bannerText"></p>
+    </div>
+    <div class="card">
+      <h2>Phone</h2>
+      <div class="checks" id="checks">Checking…</div>
+      <div style="margin-top:10px"><button class="primary" id="bootBtn" onclick="boot()">⏻ Boot phone</button></div>
+      <div class="msg" id="bootMsg"></div>
+    </div>
+    <div class="card">
+      <h2>Upload</h2>
+      <div id="drop"><b>Drop an .apk here</b><br>or click to choose</div>
+      <input id="file" type="file" accept=".apk" hidden>
+      <progress id="prog" max="100" value="0"></progress>
+      <div class="msg err" id="msg"></div>
+    </div>
+    <div class="card">
+      <h2>Games</h2>
+      <ul id="list"></ul>
+    </div>
+    <div class="card">
+      <h2>Log <button style="float:right;padding:1px 8px" onclick="loadLog()">↻</button></h2>
+      <pre id="log"></pre>
+    </div>
+  </aside>
+  <section class="screen">
+    <div class="bar">
+      <span id="status">Idle</span><span class="sp"></span>
+      <button onclick="key('back')">◁ Back</button>
+      <button onclick="key('home')">○ Home</button>
+      <button onclick="key('recents')">□ Apps</button>
+      <button class="danger" onclick="stopApp()">■ Stop</button>
+      <button onclick="reloadScreen()">Reconnect screen</button>
+      <a id="newtab" target="_blank">New tab ↗</a>
+    </div>
+    <iframe id="screen" allow="fullscreen; clipboard-read; clipboard-write"></iframe>
+  </section>
+</main>
+<script>
+const VNC_PORT = {{ vnc_port }};
+function portUrl(port, path) {
+  const h = location.hostname;
+  const m = h.match(/^(.*)-(\d+)(\.(?:preview\.)?app\.github\.dev)$/);
+  if (m) return `${location.protocol}//${m[1]}-${port}${m[3]}${path}`;
+  return `${location.protocol}//${h}:${port}${path}`;
+}
+const SCREEN_URL = portUrl(VNC_PORT, "/vnc.html?autoconnect=1&resize=scale&reconnect=1&reconnect_delay=1500");
+const $ = id => document.getElementById(id);
+$("newtab").href = SCREEN_URL;
+function reloadScreen(){ $("screen").src = SCREEN_URL; }
+reloadScreen();
+
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {} : { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body) });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+const tick = b => b ? "✅" : "❌";
+let S = {};
+async function refresh() {
+  const j = await api("/api/status"); S = j.status;
+  $("checks").innerHTML =
+    `<div>${tick(S.kvm)} Hardware virtualization (/dev/kvm)${S.kvm && !S.kvm_ok ? " — no permission, run <code>sudo chmod 666 /dev/kvm</code>" : ""}</div>` +
+    `<div>${tick(S.sdk)} Android SDK + emulator installed</div>` +
+    `<div>${tick(S.booted)} Phone booted${S.device && !S.booted ? " (booting…)" : ""}</div>`;
+  const banner = $("banner");
+  if (!S.kvm) {
+    banner.style.display = "block";
+    $("bannerText").innerHTML = "This machine has no <b>/dev/kvm</b>, so the Android emulator won't start. Most GitHub Codespaces machines don't expose it. Read the README section <i>“Why APKs might not work”</i> for alternatives.";
+  } else if (!S.sdk) {
+    banner.style.display = "block";
+    $("bannerText").innerHTML = "KVM is available 🎉 Now install the Android SDK (~3 GB) in the terminal:<br><code>bash scripts/setup-android.sh</code>";
+  } else banner.style.display = "none";
+  $("bootBtn").disabled = !S.kvm || !S.sdk || S.device;
+  $("status").textContent = S.running ? "▶ Running: " + S.running : (S.booted ? "Phone ready" : "Phone off");
+
+  const ul = $("list"); ul.innerHTML = "";
+  if (!j.apks.length) ul.innerHTML = '<li><span class="n"><small>Nothing uploaded yet</small></span></li>';
+  for (const a of j.apks) {
+    const li = document.createElement("li");
+    li.innerHTML = `<span class="n" title="${a.name}">${a.name}<br><small>${a.size_mb} MB</small></span>`;
+    const play = document.createElement("button"); play.className = "primary"; play.textContent = "▶";
+    play.disabled = !S.booted; play.title = S.booted ? "Install & launch" : "Boot the phone first";
+    play.onclick = () => runApk(a.name, play);
+    const del = document.createElement("button"); del.className = "danger"; del.textContent = "🗑";
+    del.onclick = async () => { await api("/api/delete", {name:a.name}); refresh(); };
+    li.append(play, del); ul.append(li);
+  }
+}
+function say(id, text, ok){ $(id).textContent = text; $(id).className = "msg " + (ok ? "ok" : "err"); }
+async function boot(){ try { const j = await api("/api/boot", {}); say("bootMsg", j.msg, true); } catch(e){ say("bootMsg", e.message); } refresh(); }
+async function runApk(name, btn){
+  btn.disabled = true; btn.textContent = "…"; say("msg", "Installing " + name + "…", true);
+  try { const j = await api("/api/run", {name}); say("msg", "Launched " + j.package, true); }
+  catch(e){ say("msg", e.message); }
+  refresh(); loadLog();
+}
+async function stopApp(){ await api("/api/stop", {}); refresh(); }
+async function key(k){ try { await api("/api/key", {key:k}); } catch(e){} }
+async function loadLog(){ const j = await api("/api/log"); $("log").textContent = j.log || "(empty)"; }
+
+function upload(file) {
+  say("msg", "");
+  const fd = new FormData(); fd.append("file", file);
+  const xhr = new XMLHttpRequest();
+  $("prog").style.display = "block";
+  xhr.upload.onprogress = e => { if (e.lengthComputable) $("prog").value = e.loaded / e.total * 100; };
+  xhr.onload = () => {
+    $("prog").style.display = "none";
+    let j = {}; try { j = JSON.parse(xhr.responseText); } catch {}
+    if (xhr.status !== 200) say("msg", j.error || "Upload failed (" + xhr.status + ")");
+    refresh();
+  };
+  xhr.onerror = () => { $("prog").style.display = "none"; say("msg", "Upload failed"); };
+  xhr.open("POST", "/api/upload"); xhr.send(fd);
+}
+const drop = $("drop");
+drop.onclick = () => $("file").click();
+$("file").onchange = e => e.target.files[0] && upload(e.target.files[0]);
+drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
+drop.ondragleave = () => drop.classList.remove("over");
+drop.ondrop = e => { e.preventDefault(); drop.classList.remove("over"); e.dataTransfer.files[0] && upload(e.dataTransfer.files[0]); };
+
+refresh(); loadLog(); setInterval(refresh, 4000);
+</script>
+</body>
+</html>

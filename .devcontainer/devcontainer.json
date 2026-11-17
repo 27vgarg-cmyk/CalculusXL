@@ -1,0 +1,15 @@
+{
+  "name": "Game Runner (EXE + APK)",
+  "build": { "dockerfile": "Dockerfile" },
+  "hostRequirements": { "cpus": 4, "memory": "16gb" },
+  "privileged": true,
+  "forwardPorts": [8080, 6080, 8081, 6081],
+  "portsAttributes": {
+    "8080": { "label": "EXE Runner (website)", "onAutoForward": "openBrowser" },
+    "6080": { "label": "EXE screen (noVNC)" },
+    "8081": { "label": "APK Runner (website)" },
+    "6081": { "label": "APK screen (noVNC)" }
+  },
+  "postAttachCommand": "echo 'Run ./start-exe.sh or ./start-apk.sh'",
+  "remoteUser": "vscode"
+}
